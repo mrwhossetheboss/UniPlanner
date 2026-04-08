@@ -1,10 +1,10 @@
 {
-  "projectId": "uniplanner-742c3",
-  "appId": "1:765225178658:web:99703cdffc7802cb9e5c7b",
-  "apiKey": "AIzaSyB-REAVBl8qSS9TCpaUet5aMCXEsUndcdE",
-  "authDomain": "uniplanner-742c3.firebaseapp.com",
+  "projectId": "ai-studio-applet-webapp-c5968",
+  "appId": "1:532544215026:web:6a80bbd4b1c326c969fd6b",
+  "apiKey": "AIzaSyACEZ0QQVFg4ZukPMiTMTK86Q5VotJGJM8",
+  "authDomain": "ai-studio-applet-webapp-c5968.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-5411e47c-93c5-476d-978f-0265748f72c4",
-  "storageBucket": "uniplanner-742c3.firebasestorage.app",
-  "messagingSenderId": "765225178658",
+  "storageBucket": "ai-studio-applet-webapp-c5968.firebasestorage.app",
+  "messagingSenderId": "532544215026",
   "measurementId": ""
 }

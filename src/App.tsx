@@ -268,7 +268,7 @@ const LoginPage = () => {
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-600/20">
             <LogIn className="text-white" size={32} />
           </div>
-          <h1 className="text-3xl font-display font-bold text-slate-100">Welcome Back</h1>
+          <h1 className="text-3xl font-display font-bold text-slate-100">UniPlanner</h1>
           <p className="text-slate-400">Sign in to manage your student life</p>
         </div>
 
@@ -339,14 +339,31 @@ const Dashboard = () => {
     toast(title, {
       description: body,
       duration: 5000,
+      className: cn(
+        'glass-toast',
+        type === 'success' ? 'border-l-4 border-l-emerald-500' : 
+        type === 'system' ? 'border-l-4 border-l-amber-500' : 
+        'border-l-4 border-l-blue-500'
+      ),
+      descriptionClassName: 'glass-toast-description',
+      icon: type === 'success' ? <CheckCircle2 className="text-emerald-400" size={18} /> : 
+            type === 'system' ? <AlertCircle className="text-amber-400" size={18} /> : 
+            <Clock className="text-blue-400" size={18} />,
     });
     
     // Browser Notification
-    if (notificationsEnabled && "Notification" in window && Notification.permission === "granted") {
-      try {
-        new Notification(title, { body, icon: "/favicon.ico" });
-      } catch (e) {
-        console.warn("Browser notification failed:", e);
+    if (notificationsEnabled && "Notification" in window) {
+      console.log("Attempting native notification. Permission:", Notification.permission);
+      if (Notification.permission === "granted") {
+        try {
+          new Notification(title, { 
+            body, 
+            icon: "https://cdn-icons-png.flaticon.com/512/2693/2693507.png",
+            badge: "https://cdn-icons-png.flaticon.com/512/2693/2693507.png"
+          });
+        } catch (e) {
+          console.warn("Browser notification failed:", e);
+        }
       }
     }
 
@@ -354,8 +371,10 @@ const Dashboard = () => {
     if (userId && notificationsEnabled) {
       try {
         await axios.post('/api/send-push', { userId, title, body });
-      } catch (err) {
-        console.error("Failed to send push notification:", err);
+      } catch (err: any) {
+        const errorData = err.response?.data;
+        console.error("Failed to send push notification:", errorData || err.message);
+        // Don't alert the user for every background failure, but log it clearly
       }
     }
 
@@ -364,14 +383,27 @@ const Dashboard = () => {
       try {
         await axios.post('/api/send-email', {
           to: userEmail,
-          subject: `[Student Reminder] ${title}`,
+          subject: `[UniPlanner Reminder] ${title}`,
           text: body,
           html: `
-            <div style="font-family: sans-serif; padding: 20px; color: #333;">
-              <h2 style="color: #2563eb;">${title}</h2>
-              <p>${body}</p>
-              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-              <p style="font-size: 12px; color: #666;">This is an automated reminder from your Student Task Manager.</p>
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #1e293b; background-color: #f8fafc; border-radius: 16px;">
+              <div style="background-color: #2563eb; padding: 20px; border-radius: 12px 12px 0 0; text-align: center;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">UniPlanner Reminder</h1>
+              </div>
+              <div style="background-color: #ffffff; padding: 30px; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; border-top: none;">
+                <h2 style="color: #1e293b; margin-top: 0;">${title}</h2>
+                <div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                  <p style="margin: 0; font-size: 16px; line-height: 1.6;">${body}</p>
+                </div>
+                <p style="font-size: 14px; color: #64748b;">
+                  Don't forget to check your dashboard for more details and to mark this task as completed.
+                </p>
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center;">
+                  <p style="font-size: 12px; color: #94a3b8; margin: 0;">
+                    This is an automated reminder from your <strong>UniPlanner</strong> Task Manager.
+                  </p>
+                </div>
+              </div>
             </div>
           `
         });
@@ -381,8 +413,24 @@ const Dashboard = () => {
     }
   };
 
-  const testNotification = () => {
+  const testNotification = async () => {
     addAppNotification("Test Notification", "This is a test of the notification system!", "success", user?.email, user?.id);
+    
+    // Explicit feedback for email test
+    if (user?.email) {
+      toast.promise(
+        axios.post('/api/send-email', {
+          to: user.email,
+          subject: "[Student Planner] Email Test",
+          text: "If you are reading this, your custom email sender is working perfectly!"
+        }),
+        {
+          loading: 'Sending test email...',
+          success: 'Test email sent to your inbox!',
+          error: 'Email failed. Check your SMTP secrets.',
+        }
+      );
+    }
   };
 
   const [newTask, setNewTask] = useState({
@@ -402,10 +450,14 @@ const Dashboard = () => {
       if (!messaging) return;
       
       try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
+        const permission = await Notification.permission;
+        if (permission === 'default') {
+          await Notification.requestPermission();
+        }
+        
+        if (Notification.permission === 'granted') {
           const token = await getToken(messaging, {
-            vapidKey: 'BPIy_W-X-Y-Z-EXAMPLE-VAPID-KEY' // Note: User needs to provide their real VAPID key
+            vapidKey: 'BPIy_W-X-Y-Z-EXAMPLE-VAPID-KEY' 
           });
           
           if (token) {
@@ -425,11 +477,20 @@ const Dashboard = () => {
     if (messaging) {
       onMessage(messaging, (payload) => {
         if (payload.notification) {
-          addAppNotification(
-            payload.notification.title || 'Notification',
-            payload.notification.body || '',
-            'reminder'
-          );
+          const { title, body } = payload.notification;
+          
+          // Show In-App Toast
+          addAppNotification(title || 'Notification', body || '', 'reminder');
+
+          // Show Native Browser Notification even in foreground
+          if (Notification.permission === 'granted') {
+            new Notification(title || 'Task Reminder', {
+              body: body || '',
+              icon: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+              badge: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+              tag: 'task-reminder'
+            });
+          }
         }
       });
     }
@@ -504,15 +565,15 @@ const Dashboard = () => {
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert("You must be logged in to add tasks.");
+      toast.error("You must be logged in to add tasks.");
       return;
     }
     if (!newTask.title.trim()) {
-      alert("Please enter a task title.");
+      toast.warning("Please enter a task title.");
       return;
     }
     if (!newTask.deadline) {
-      alert("Please select a deadline.");
+      toast.warning("Please select a deadline.");
       return;
     }
     
@@ -535,14 +596,14 @@ const Dashboard = () => {
       setIsAdding(false);
     } catch (err: any) {
       console.error("Error adding task:", err);
-      alert(`Failed to add task: ${err.message || 'Unknown error'}`);
+      toast.error(`Failed to add task: ${err.message || 'Unknown error'}`);
     }
   };
 
   const handleBulkAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      alert("You must be logged in to add tasks.");
+      toast.error("You must be logged in to add tasks.");
       return;
     }
     if (!bulkText.trim()) return;
@@ -584,7 +645,7 @@ const Dashboard = () => {
     }
 
     if (parsedTasks.length === 0) {
-      alert("No valid tasks found in the text. Please check the format.");
+      toast.warning("No valid tasks found in the text. Please check the format.");
       return;
     }
 
@@ -594,7 +655,7 @@ const Dashboard = () => {
       setIsBulkAdding(false);
     } catch (err: any) {
       console.error("Bulk add failed:", err);
-      alert(`Some tasks failed to add: ${err.message || 'Unknown error'}`);
+      toast.error(`Some tasks failed to add: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -611,7 +672,9 @@ const Dashboard = () => {
       <header className="flex items-center justify-between mb-12">
         <div>
           <h1 className="text-4xl font-display font-bold text-slate-100 mb-2">Hey {user?.name || 'Student'}! 👋</h1>
-          <p className="text-slate-400">You have <span className="text-blue-400 font-bold">{stats.pending}</span> tasks pending for today.</p>
+          <p className="text-slate-400 flex items-center gap-2">
+            You have <span className="text-blue-400 font-bold">{stats.pending}</span> tasks pending for today.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -652,21 +715,51 @@ const Dashboard = () => {
                       Mark all as read
                     </button>
                   </div>
-                  <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+                  <div className="flex flex-col gap-3 max-h-[450px] overflow-y-auto pr-1 custom-scrollbar">
                     {appNotifications.length > 0 ? (
                       appNotifications.map(n => (
-                        <div key={n.id} className={cn(
-                          "p-3 rounded-2xl transition-all",
-                          n.read ? "bg-white/5 opacity-60" : "bg-white/10 border-l-2 border-blue-500"
-                        )}>
-                          <div className="flex items-start justify-between gap-2">
-                            <h4 className="text-sm font-bold text-slate-100">{n.title}</h4>
-                            <span className="text-[10px] text-slate-500 whitespace-nowrap">
-                              {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                        <motion.div 
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          key={n.id} 
+                          className={cn(
+                            "p-4 rounded-2xl transition-all border border-white/5 relative group",
+                            n.read ? "bg-white/5 opacity-60" : "bg-white/10 border-l-4 border-l-blue-500 shadow-lg shadow-blue-500/5"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={cn(
+                              "mt-1 p-2 rounded-xl",
+                              n.type === 'success' ? "bg-emerald-500/20 text-emerald-400" : 
+                              n.type === 'system' ? "bg-amber-500/20 text-amber-400" : 
+                              "bg-blue-500/20 text-blue-400"
+                            )}>
+                              {n.type === 'success' ? <CheckCircle2 size={16} /> : 
+                               n.type === 'system' ? <AlertCircle size={16} /> : 
+                               <Clock size={16} />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <h4 className="text-sm font-bold text-slate-100 truncate">{n.title}</h4>
+                                <span className="text-[10px] font-mono text-slate-500 whitespace-nowrap">
+                                  {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{n.body}</p>
+                            </div>
                           </div>
-                          <p className="text-xs text-slate-400 mt-1">{n.body}</p>
-                        </div>
+                          {!n.read && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAppNotifications(prev => prev.map(notif => notif.id === n.id ? {...notif, read: true} : notif));
+                              }}
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:text-blue-400"
+                            >
+                              <CheckCircle2 size={12} />
+                            </button>
+                          )}
+                        </motion.div>
                       ))
                     ) : (
                       <div className="py-8 text-center">
@@ -1102,7 +1195,16 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 export default function App() {
   return (
     <AuthProvider>
-      <Toaster position="top-right" theme="dark" richColors />
+      <Toaster 
+        position="top-right" 
+        expand={true}
+        visibleToasts={3}
+        closeButton
+        toastOptions={{
+          className: 'glass-toast',
+          descriptionClassName: 'glass-toast-description',
+        }}
+      />
       <Router>
         <div className="min-h-screen">
           <Routes>

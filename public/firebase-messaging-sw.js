@@ -14,11 +14,32 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  const notificationTitle = payload.notification.title;
+  
+  const notificationTitle = payload.notification?.title || payload.data?.title || 'Task Reminder';
   const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/favicon.ico'
+    body: payload.notification?.body || payload.data?.body || 'You have a pending task.',
+    icon: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+    badge: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+    tag: 'task-reminder',
+    renotify: true,
+    requireInteraction: true,
+    data: {
+      url: self.location.origin
+    }
   };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      if (clientList.length > 0) {
+        return clientList[0].focus();
+      }
+      return clients.openWindow('/');
+    })
+  );
 });

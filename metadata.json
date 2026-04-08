@@ -1,6 +1,6 @@
 {
-  "name": "Agile Student Reminder",
-  "description": "A production-ready Student Reminder Application built with Agile methodologies, featuring task management, calendar integration, and smart notifications.",
+  "name": "UniPlanner",
+  "description": "A comprehensive student task manager featuring automated email reminders, calendar integration, and a sleek dashboard.",
   "requestFramePermissions": [
     "notifications"
   ]

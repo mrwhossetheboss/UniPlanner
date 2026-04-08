@@ -54,3 +54,36 @@
   @apply !text-slate-500 !no-underline !font-bold !mb-4 text-xs uppercase tracking-widest;
 }
 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/20;
+}
+
+/* Sonner Toast Overrides */
+.glass-toast {
+  @apply !bg-slate-950/40 !backdrop-blur-2xl !border !border-white/10 !text-slate-100 !rounded-2xl !shadow-[0_20px_50px_rgba(0,0,0,0.5)] !p-4 !font-sans !flex !items-start !gap-3 !min-w-[350px] !transition-all !duration-500;
+}
+
+
+
+.glass-toast-title {
+  @apply !font-bold !text-sm !text-white !mb-1;
+}
+
+.glass-toast-description {
+  @apply !text-xs !text-slate-400 !leading-relaxed;
+}
+
+
+

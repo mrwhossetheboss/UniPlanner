@@ -5,15 +5,14 @@ import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
+import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
 dotenv.config();
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: "ai-studio-applet-webapp-c5968",
-  });
-}
+let dbAdmin: any;
+let firestoreStatus = "initializing";
+let firestoreError = "";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +22,40 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Initialize Firebase Admin safely
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
+    const adminApp = admin.apps[0];
+    dbAdmin = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+
+    // Run connection test in background
+    (async () => {
+      try {
+        await dbAdmin.collection('_connection_test_').doc('test').get();
+        firestoreStatus = "connected";
+      } catch (e: any) {
+        console.warn("Primary DB connection failed, trying fallback...");
+        try {
+          const fallbackDb = getFirestore(adminApp, '(default)');
+          await fallbackDb.collection('_connection_test_').doc('test').get();
+          dbAdmin = fallbackDb;
+          firestoreStatus = "connected (fallback)";
+        } catch (e2: any) {
+          firestoreStatus = "failed";
+          firestoreError = e2.message;
+        }
+      }
+    })();
+  } catch (err: any) {
+    console.error("Firebase Admin initialization failed:", err.message);
+    firestoreStatus = "error";
+    firestoreError = err.message;
+  }
 
   // Email Transporter
   const transporter = nodemailer.createTransport({
@@ -37,7 +70,15 @@ async function startServer() {
 
   // API Health check
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      firestore: {
+        status: firestoreStatus,
+        error: firestoreError,
+        databaseId: firebaseConfig.firestoreDatabaseId
+      }
+    });
   });
 
   // Send Push Notification Route
@@ -45,24 +86,75 @@ async function startServer() {
     const { userId, title, body } = req.body;
 
     try {
-      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      if (!userId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+
+      console.log(`Attempting to send push to user: ${userId}`);
+      const userDoc = await dbAdmin.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        console.warn(`User ${userId} not found in Firestore`);
+        return res.status(404).json({ error: "User not found" });
+      }
+
       const userData = userDoc.data();
+      console.log(`User data found. FCM tokens count: ${userData?.fcmTokens?.length || 0}`);
       const tokens = userData?.fcmTokens || [];
 
       if (tokens.length === 0) {
-        return res.json({ status: "skipped", message: "No FCM tokens found" });
+        return res.json({ status: "skipped", message: "No FCM tokens found for this user" });
       }
 
       const message = {
-        notification: { title, body },
-        tokens: tokens,
+        notification: { 
+          title, 
+          body 
+        },
+        webpush: {
+          notification: {
+            title,
+            body,
+            icon: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png', // Student/Task icon
+            badge: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+            vibrate: [200, 100, 200],
+            tag: 'task-reminder',
+            renotify: true,
+            requireInteraction: true, // Keeps it visible until user interacts
+            actions: [
+              {
+                action: 'open_app',
+                title: 'Open Manager'
+              }
+            ]
+          }
+        },
+        tokens: tokens.filter((t: any) => typeof t === 'string' && t.length > 0),
       };
 
+      if (message.tokens.length === 0) {
+        return res.json({ status: "skipped", message: "No valid FCM tokens found" });
+      }
+
       const response = await admin.messaging().sendEachForMulticast(message);
-      res.json({ status: "ok", successCount: response.successCount });
-    } catch (error) {
-      console.error("Failed to send push notification:", error);
-      res.status(500).json({ error: "Failed to send push notification" });
+      res.json({ 
+        status: "ok", 
+        successCount: response.successCount, 
+        failureCount: response.failureCount 
+      });
+    } catch (error: any) {
+      const errorDetails = {
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+        ...(error.toJSON ? error.toJSON() : error)
+      };
+      console.error("Failed to send push notification. Full error:", JSON.stringify(errorDetails, null, 2));
+      res.status(500).json({ 
+        error: "Failed to send push notification", 
+        details: error.message,
+        code: error.code,
+        fullError: errorDetails
+      });
     }
   });
 
@@ -84,9 +176,13 @@ async function startServer() {
         html,
       });
       res.json({ status: "ok" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to send email:", error);
-      res.status(500).json({ error: "Failed to send email" });
+      let errorMessage = "Failed to send email";
+      if (error.message.includes("535-5.7.8")) {
+        errorMessage = "Email Login Failed: Please use a Google 'App Password' instead of your regular password. Go to myaccount.google.com/apppasswords to create one.";
+      }
+      res.status(500).json({ error: errorMessage, details: error.message });
     }
   });
 

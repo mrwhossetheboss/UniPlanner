@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A student task",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "category": { "type": "string" },
+        "reminderValue": { "type": "string" },
+        "reminderUnit": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "deadline", "userId", "completed"]
+    },
+    "SubTask": {
+      "title": "SubTask",
+      "description": "A subtask within a task",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "completed": { "type": "boolean" }
+      },
+      "required": ["text", "completed"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Task documents"
+    },
+    "/tasks/{taskId}/subtasks/{subtaskId}": {
+      "schema": "SubTask",
+      "description": "Subtask documents"
+    }
+  }
+}

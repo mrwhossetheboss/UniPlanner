@@ -48,13 +48,17 @@ import {
   orderBy,
   getDocs,
   setDoc,
-  getDoc
+  getDoc,
+  arrayUnion
 } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, messaging } from './firebase';
+import { getToken, onMessage } from 'firebase/messaging';
+import axios from 'axios';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import { cn, formatDate, suggestCategory } from './lib/utils';
 import { Task, Stats, User, AppNotification } from './types';
+import { Toaster, toast } from 'sonner';
 
 // --- Auth Context ---
 
@@ -280,7 +284,7 @@ const LoginPage = () => {
             onClick={handleGoogleLogin}
             className="w-full glass hover:bg-white/10 py-4 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-3 border border-white/10"
           >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" alt="Google" className="w-5 h-5" referrerPolicy="no-referrer" />
+            <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" alt="Google" className="w-5 h-5" referrerPolicy="no-referrer" />
             Continue with Google
           </button>
         </div>
@@ -306,8 +310,21 @@ const Dashboard = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [appNotifications, setAppNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== 'undefined' && "Notification" in window ? Notification.permission : "default"
+  );
 
-  const addAppNotification = (title: string, body: string, type: AppNotification['type'] = 'reminder') => {
+  const requestPermission = async () => {
+    if ("Notification" in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        addAppNotification("Notifications Enabled", "You will now receive task reminders in your browser!", "success");
+      }
+    }
+  };
+
+  const addAppNotification = async (title: string, body: string, type: AppNotification['type'] = 'reminder', userEmail?: string, userId?: string) => {
     const newNotif: AppNotification = {
       id: Math.random().toString(36).substr(2, 9),
       title,
@@ -318,13 +335,54 @@ const Dashboard = () => {
     };
     setAppNotifications(prev => [newNotif, ...prev].slice(0, 20));
     
+    // Visible Toast
+    toast(title, {
+      description: body,
+      duration: 5000,
+    });
+    
+    // Browser Notification
     if (notificationsEnabled && "Notification" in window && Notification.permission === "granted") {
-      new Notification(title, { body, icon: "/favicon.ico" });
+      try {
+        new Notification(title, { body, icon: "/favicon.ico" });
+      } catch (e) {
+        console.warn("Browser notification failed:", e);
+      }
+    }
+
+    // Push Notification (FCM)
+    if (userId && notificationsEnabled) {
+      try {
+        await axios.post('/api/send-push', { userId, title, body });
+      } catch (err) {
+        console.error("Failed to send push notification:", err);
+      }
+    }
+
+    // Email Notification
+    if (userEmail && notificationsEnabled) {
+      try {
+        await axios.post('/api/send-email', {
+          to: userEmail,
+          subject: `[Student Reminder] ${title}`,
+          text: body,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #333;">
+              <h2 style="color: #2563eb;">${title}</h2>
+              <p>${body}</p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+              <p style="font-size: 12px; color: #666;">This is an automated reminder from your Student Task Manager.</p>
+            </div>
+          `
+        });
+      } catch (err) {
+        console.error("Failed to send email notification:", err);
+      }
     }
   };
 
   const testNotification = () => {
-    addAppNotification("Test Notification", "This is a test of the notification system!", "success");
+    addAppNotification("Test Notification", "This is a test of the notification system!", "success", user?.email, user?.id);
   };
 
   const [newTask, setNewTask] = useState({
@@ -339,9 +397,41 @@ const Dashboard = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Request notification permission
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
+    // FCM Setup
+    const setupFCM = async () => {
+      if (!messaging) return;
+      
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          const token = await getToken(messaging, {
+            vapidKey: 'BPIy_W-X-Y-Z-EXAMPLE-VAPID-KEY' // Note: User needs to provide their real VAPID key
+          });
+          
+          if (token) {
+            await updateDoc(doc(db, 'users', user.id), {
+              fcmTokens: arrayUnion(token)
+            });
+          }
+        }
+      } catch (err) {
+        console.error("FCM Setup failed:", err);
+      }
+    };
+
+    setupFCM();
+
+    // Foreground Message Handler
+    if (messaging) {
+      onMessage(messaging, (payload) => {
+        if (payload.notification) {
+          addAppNotification(
+            payload.notification.title || 'Notification',
+            payload.notification.body || '',
+            'reminder'
+          );
+        }
+      });
     }
 
     const q = query(
@@ -373,7 +463,7 @@ const Dashboard = () => {
 
         // 5 mins before automatic notification
         if (diffMins === 5 && !notifiedTasks.has(`${task.id}-5min`)) {
-          addAppNotification("Task Reminder", `"${task.title}" is due in 5 minutes!`);
+          addAppNotification("Task Reminder", `"${task.title}" is due in 5 minutes!`, 'reminder', user.email, user.id);
           notifiedTasks.add(`${task.id}-5min`);
         }
 
@@ -388,7 +478,7 @@ const Dashboard = () => {
           const timeToReminder = Math.floor((reminderTime - now.getTime()) / 60000);
 
           if (timeToReminder === 0 && !notifiedTasks.has(`${task.id}-custom`)) {
-            addAppNotification("Task Reminder", `"${task.title}" reminder: Due at ${formatDate(task.deadline)}`);
+            addAppNotification("Task Reminder", `"${task.title}" reminder: Due at ${formatDate(task.deadline)}`, 'reminder', user.email, user.id);
             notifiedTasks.add(`${task.id}-custom`);
           }
         }
@@ -530,6 +620,7 @@ const Dashboard = () => {
           >
             Test Notif
           </button>
+
           <div className="relative">
             <button 
               onClick={() => setShowNotifications(!showNotifications)}
@@ -1011,6 +1102,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-right" theme="dark" richColors />
       <Router>
         <div className="min-h-screen">
           <Routes>

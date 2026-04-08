@@ -14,17 +14,16 @@ Students often struggle with multiple deadlines across different subjects. Tradi
 - Demonstrate a rigorous Agile development process.
 
 ## 4. System Architecture
-The application follows a standard Full-Stack architecture:
+The application follows a modern Serverless architecture:
 - **Frontend**: React.js (SPA) with Tailwind CSS for styling and Framer Motion for animations.
-- **Backend**: Node.js with Express.js following the MVC (Model-View-Controller) pattern.
-- **Database**: MongoDB (via Mongoose) for persistent storage.
-- **API**: RESTful API for communication between frontend and backend.
+- **Backend/Database**: Firebase (Firestore) for real-time data storage and Firebase Authentication for user management.
+- **Hosting**: Deployed via Cloud Run (or similar) with an Express server serving the static files.
 
 ## 5. Feature Mapping (R1-R5)
-- **R1 (Basic Reminder)**: CRUD operations for tasks with title, description, deadline, category, and priority.
-- **R2 (Edit + Notifications)**: Task editing and browser-based notification system.
+- **R1 (Basic Reminder)**: CRUD operations for tasks with title, description, deadline, category, and reminder settings.
+- **R2 (Edit + Notifications)**: Task editing and browser-based notification system (5 mins before + custom reminders).
 - **R3 (Dashboard + Categories)**: Statistical overview and advanced filtering/search.
-- **R4 (Calendar)**: Integrated calendar view showing task distribution.
+- **R4 (Calendar)**: Integrated calendar view showing task distribution with oversized typography.
 - **R5 (Advanced Features)**: Smart category suggestion and deadline-based auto-sorting.
 
 ## 6. Agile Process Explanation

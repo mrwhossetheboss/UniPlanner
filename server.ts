@@ -10,40 +10,9 @@ import firebaseConfig from "./firebase-applet-config.json" assert { type: "json"
 
 dotenv.config();
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
-  console.log("Firebase Admin initialized for project:", firebaseConfig.projectId);
-}
-
-// Initialize Firestore Admin with the specific database ID from config
-// We use the admin.app() instance to ensure it's tied to the initialized app
-const dbAdmin = getFirestore(admin.apps[0], firebaseConfig.firestoreDatabaseId);
-console.log("Firestore Admin initialized for database:", firebaseConfig.firestoreDatabaseId);
-
-let firestoreStatus = "testing";
+let dbAdmin: any;
+let firestoreStatus = "initializing";
 let firestoreError = "";
-
-// Startup Connection Test
-async function testFirestoreConnection() {
-  try {
-    console.log("Testing Firestore Admin connection...");
-    // Try to fetch a non-existent doc just to check permissions
-    await dbAdmin.collection('_connection_test_').doc('test').get();
-    firestoreStatus = "connected";
-    console.log("Firestore Admin connection test successful (Permissions OK)");
-  } catch (error: any) {
-    firestoreStatus = "failed";
-    firestoreError = error.message;
-    console.error("Firestore Admin connection test FAILED:", error.message);
-    if (error.message.includes("PERMISSION_DENIED")) {
-      console.error("CRITICAL: Service account lacks permissions for database:", firebaseConfig.firestoreDatabaseId);
-    }
-  }
-}
-testFirestoreConnection();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,6 +22,40 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Initialize Firebase Admin safely
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
+    const adminApp = admin.apps[0];
+    dbAdmin = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+
+    // Run connection test in background
+    (async () => {
+      try {
+        await dbAdmin.collection('_connection_test_').doc('test').get();
+        firestoreStatus = "connected";
+      } catch (e: any) {
+        console.warn("Primary DB connection failed, trying fallback...");
+        try {
+          const fallbackDb = getFirestore(adminApp, '(default)');
+          await fallbackDb.collection('_connection_test_').doc('test').get();
+          dbAdmin = fallbackDb;
+          firestoreStatus = "connected (fallback)";
+        } catch (e2: any) {
+          firestoreStatus = "failed";
+          firestoreError = e2.message;
+        }
+      }
+    })();
+  } catch (err: any) {
+    console.error("Firebase Admin initialization failed:", err.message);
+    firestoreStatus = "error";
+    firestoreError = err.message;
+  }
 
   // Email Transporter
   const transporter = nodemailer.createTransport({

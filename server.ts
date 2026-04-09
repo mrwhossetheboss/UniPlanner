@@ -26,11 +26,29 @@ async function startServer() {
   // Initialize Firebase Admin safely
   try {
     if (!admin.apps.length) {
-      // In Cloud Run, initializeApp() without args uses the environment's service account
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId,
-      });
-      console.log(`Firebase Admin initialized for project: ${firebaseConfig.projectId}`);
+      const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+      
+      if (serviceAccountKey) {
+        try {
+          const cert = JSON.parse(serviceAccountKey);
+          admin.initializeApp({
+            credential: admin.credential.cert(cert),
+            projectId: firebaseConfig.projectId,
+          });
+          console.log(`Firebase Admin initialized using Service Account Key for project: ${firebaseConfig.projectId}`);
+        } catch (e: any) {
+          console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY secret. Falling back to default credentials.");
+          admin.initializeApp({
+            projectId: firebaseConfig.projectId,
+          });
+        }
+      } else {
+        // In Cloud Run, initializeApp() without args uses the environment's service account
+        admin.initializeApp({
+          projectId: firebaseConfig.projectId,
+        });
+        console.log(`Firebase Admin initialized for project: ${firebaseConfig.projectId}`);
+      }
     }
     const adminApp = admin.apps[0];
     
@@ -74,16 +92,26 @@ async function startServer() {
     firestoreError = err.message;
   }
 
-  // Email Transporter
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || "587"),
-    secure: false, // true for 465, false for other ports
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  // Email Transporter (Lazy initialization)
+  let transporter: nodemailer.Transporter | null = null;
+
+  const getTransporter = () => {
+    if (!transporter) {
+      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        throw new Error("SMTP_USER or SMTP_PASS environment variables are missing.");
+      }
+      transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || "smtp.gmail.com",
+        port: parseInt(process.env.SMTP_PORT || "587"),
+        secure: process.env.SMTP_SECURE === "true",
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+    }
+    return transporter;
+  };
 
   // API Health check
   app.get("/api/health", (req, res) => {
@@ -179,13 +207,9 @@ async function startServer() {
   app.post("/api/send-email", async (req, res) => {
     const { to, subject, text, html } = req.body;
 
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      console.warn("SMTP credentials not configured. Email not sent.");
-      return res.status(200).json({ status: "skipped", message: "SMTP not configured" });
-    }
-
     try {
-      await transporter.sendMail({
+      const mailTransporter = getTransporter();
+      await mailTransporter.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to,
         subject,
@@ -195,10 +219,14 @@ async function startServer() {
       res.json({ status: "ok" });
     } catch (error: any) {
       console.error("Failed to send email:", error);
-      let errorMessage = "Failed to send email";
+      let errorMessage = error.message || "Failed to send email";
+      
       if (error.message.includes("535-5.7.8")) {
-        errorMessage = "Email Login Failed: Please use a Google 'App Password' instead of your regular password. Go to myaccount.google.com/apppasswords to create one.";
+        errorMessage = "Email Login Failed: Please use a Google 'App Password' instead of your regular password.";
+      } else if (error.message.includes("missing")) {
+        errorMessage = "SMTP secrets are missing in the environment variables.";
       }
+      
       res.status(500).json({ error: errorMessage, details: error.message });
     }
   });

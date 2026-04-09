@@ -421,13 +421,13 @@ const Dashboard = () => {
       toast.promise(
         axios.post('/api/send-email', {
           to: user.email,
-          subject: "[Student Planner] Email Test",
+          subject: "[UniPlanner] Email Test",
           text: "If you are reading this, your custom email sender is working perfectly!"
         }),
         {
           loading: 'Sending test email...',
           success: 'Test email sent to your inbox!',
-          error: 'Email failed. Check your SMTP secrets.',
+          error: (err: any) => err.response?.data?.error || 'Email failed. Check your SMTP secrets.',
         }
       );
     }

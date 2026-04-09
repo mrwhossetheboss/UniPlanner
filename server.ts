@@ -26,28 +26,45 @@ async function startServer() {
   // Initialize Firebase Admin safely
   try {
     if (!admin.apps.length) {
+      // In Cloud Run, initializeApp() without args uses the environment's service account
       admin.initializeApp({
         projectId: firebaseConfig.projectId,
       });
+      console.log(`Firebase Admin initialized for project: ${firebaseConfig.projectId}`);
     }
     const adminApp = admin.apps[0];
-    dbAdmin = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId);
+    
+    // Determine initial database ID
+    const initialDbId = firebaseConfig.firestoreDatabaseId || '(default)';
+    dbAdmin = getFirestore(adminApp, initialDbId);
+    console.log(`Initial Firestore Admin database: ${initialDbId}`);
 
     // Run connection test in background
     (async () => {
       try {
+        console.log(`Testing connection to ${initialDbId}...`);
         await dbAdmin.collection('_connection_test_').doc('test').get();
         firestoreStatus = "connected";
+        console.log(`Firestore Admin connected to ${initialDbId}`);
       } catch (e: any) {
-        console.warn("Primary DB connection failed, trying fallback...");
-        try {
-          const fallbackDb = getFirestore(adminApp, '(default)');
-          await fallbackDb.collection('_connection_test_').doc('test').get();
-          dbAdmin = fallbackDb;
-          firestoreStatus = "connected (fallback)";
-        } catch (e2: any) {
+        console.warn(`Primary DB (${initialDbId}) connection failed: ${e.message}`);
+        
+        if (initialDbId !== '(default)') {
+          try {
+            console.log("Attempting fallback to (default) database...");
+            const fallbackDb = getFirestore(adminApp, '(default)');
+            await fallbackDb.collection('_connection_test_').doc('test').get();
+            dbAdmin = fallbackDb;
+            firestoreStatus = "connected (fallback)";
+            console.log("Firestore Admin successfully connected to (default) database");
+          } catch (e2: any) {
+            console.error(`Fallback to (default) failed: ${e2.message}`);
+            firestoreStatus = "failed";
+            firestoreError = e2.message;
+          }
+        } else {
           firestoreStatus = "failed";
-          firestoreError = e2.message;
+          firestoreError = e.message;
         }
       }
     })();

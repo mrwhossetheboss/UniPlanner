@@ -113,6 +113,127 @@ async function startServer() {
     return transporter;
   };
 
+  // --- Internal Helper Functions ---
+
+  const sendPushInternal = async (userId: string, title: string, body: string) => {
+    if (!dbAdmin) return { status: "error", message: "Firestore not initialized" };
+    
+    const userDoc = await dbAdmin.collection('users').doc(userId).get();
+    if (!userDoc.exists) return { status: "error", message: "User not found" };
+
+    const userData = userDoc.data();
+    const tokens = userData?.fcmTokens || [];
+    if (tokens.length === 0) return { status: "skipped", message: "No tokens" };
+
+    const message = {
+      notification: { title, body },
+      webpush: {
+        notification: {
+          title, body,
+          icon: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
+          tag: 'task-reminder',
+          renotify: true,
+          requireInteraction: true,
+        }
+      },
+      tokens: tokens.filter((t: any) => typeof t === 'string' && t.length > 0),
+    };
+
+    if (message.tokens.length === 0) return { status: "skipped", message: "No valid tokens" };
+    return await admin.messaging().sendEachForMulticast(message);
+  };
+
+  const sendEmailInternal = async (to: string, subject: string, html: string) => {
+    try {
+      const mailTransporter = getTransporter();
+      await mailTransporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to,
+        subject,
+        html,
+      });
+      return { status: "ok" };
+    } catch (e: any) {
+      console.error("Internal email failed:", e.message);
+      return { status: "error", message: e.message };
+    }
+  };
+
+  // --- Reminder Engine ---
+
+  const checkReminders = async () => {
+    if (firestoreStatus !== "connected" && firestoreStatus !== "connected (fallback)") return;
+    
+    console.log("Reminder Engine: Checking for due tasks...");
+    const now = new Date();
+    
+    try {
+      const tasksSnapshot = await dbAdmin.collection('tasks').where('completed', '==', false).get();
+      
+      for (const taskDoc of tasksSnapshot.docs) {
+        const task = taskDoc.data();
+        const deadline = new Date(task.deadline);
+        const timeDiffMin = Math.floor((deadline.getTime() - now.getTime()) / 60000);
+        const remindersSent = task.remindersSent || [];
+
+        // 1. 15 Minute Reminder
+        if (timeDiffMin <= 15 && timeDiffMin > 13 && !remindersSent.includes('15min')) {
+          console.log(`Sending 15min reminder for task: ${task.title}`);
+          
+          // Send Push
+          await sendPushInternal(task.userId, "Task Due Soon", `"${task.title}" is due in 15 minutes!`);
+          
+          // Send Email
+          const userDoc = await dbAdmin.collection('users').doc(task.userId).get();
+          if (userDoc.exists && userDoc.data()?.email) {
+            await sendEmailInternal(userDoc.data().email, `[UniPlanner] 15 Min Reminder: ${task.title}`, `
+              <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #6366f1;">Task Due Soon</h2>
+                <p>Your task <strong>${task.title}</strong> is due in 15 minutes.</p>
+                <p>Deadline: ${new Date(task.deadline).toLocaleString()}</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <p style="font-size: 12px; color: #666;">This is an automated reminder from UniPlanner.</p>
+              </div>
+            `);
+          }
+
+          // Mark as sent
+          await taskDoc.ref.update({ remindersSent: admin.firestore.FieldValue.arrayUnion('15min') });
+        }
+
+        // 2. Deadline Reminder
+        if (timeDiffMin <= 0 && timeDiffMin > -2 && !remindersSent.includes('deadline')) {
+          console.log(`Sending deadline reminder for task: ${task.title}`);
+          
+          // Send Push
+          await sendPushInternal(task.userId, "Task Deadline Reached", `"${task.title}" is due NOW!`);
+          
+          // Send Email
+          const userDoc = await dbAdmin.collection('users').doc(task.userId).get();
+          if (userDoc.exists && userDoc.data()?.email) {
+            await sendEmailInternal(userDoc.data().email, `[UniPlanner] Deadline Reached: ${task.title}`, `
+              <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #ef4444;">Deadline Reached</h2>
+                <p>The deadline for <strong>${task.title}</strong> has been reached.</p>
+                <p>Time: ${new Date(task.deadline).toLocaleString()}</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <p style="font-size: 12px; color: #666;">This is an automated reminder from UniPlanner.</p>
+              </div>
+            `);
+          }
+
+          // Mark as sent
+          await taskDoc.ref.update({ remindersSent: admin.firestore.FieldValue.arrayUnion('deadline') });
+        }
+      }
+    } catch (err: any) {
+      console.error("Reminder Engine Error:", err.message);
+    }
+  };
+
+  // Run every minute
+  setInterval(checkReminders, 60000);
+
   // API Health check
   app.get("/api/health", (req, res) => {
     res.json({ 
@@ -135,99 +256,24 @@ async function startServer() {
         return res.status(400).json({ error: "userId is required" });
       }
 
-      console.log(`Attempting to send push to user: ${userId}`);
-      const userDoc = await dbAdmin.collection('users').doc(userId).get();
-      if (!userDoc.exists) {
-        console.warn(`User ${userId} not found in Firestore`);
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const userData = userDoc.data();
-      console.log(`User data found. FCM tokens count: ${userData?.fcmTokens?.length || 0}`);
-      const tokens = userData?.fcmTokens || [];
-
-      if (tokens.length === 0) {
-        return res.json({ status: "skipped", message: "No FCM tokens found for this user" });
-      }
-
-      const message = {
-        notification: { 
-          title, 
-          body 
-        },
-        webpush: {
-          notification: {
-            title,
-            body,
-            icon: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png', // Student/Task icon
-            badge: 'https://cdn-icons-png.flaticon.com/512/2693/2693507.png',
-            vibrate: [200, 100, 200],
-            tag: 'task-reminder',
-            renotify: true,
-            requireInteraction: true, // Keeps it visible until user interacts
-            actions: [
-              {
-                action: 'open_app',
-                title: 'Open Manager'
-              }
-            ]
-          }
-        },
-        tokens: tokens.filter((t: any) => typeof t === 'string' && t.length > 0),
-      };
-
-      if (message.tokens.length === 0) {
-        return res.json({ status: "skipped", message: "No valid FCM tokens found" });
-      }
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-      res.json({ 
-        status: "ok", 
-        successCount: response.successCount, 
-        failureCount: response.failureCount 
-      });
+      const result = await sendPushInternal(userId, title, body);
+      res.json(result);
     } catch (error: any) {
-      const errorDetails = {
-        message: error.message,
-        code: error.code,
-        stack: error.stack,
-        ...(error.toJSON ? error.toJSON() : error)
-      };
-      console.error("Failed to send push notification. Full error:", JSON.stringify(errorDetails, null, 2));
-      res.status(500).json({ 
-        error: "Failed to send push notification", 
-        details: error.message,
-        code: error.code,
-        fullError: errorDetails
-      });
+      console.error("Push API failed:", error.message);
+      res.status(500).json({ error: error.message });
     }
   });
 
   // Send Email Route
   app.post("/api/send-email", async (req, res) => {
-    const { to, subject, text, html } = req.body;
+    const { to, subject, html } = req.body;
 
     try {
-      const mailTransporter = getTransporter();
-      await mailTransporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        text,
-        html,
-      });
-      res.json({ status: "ok" });
+      const result = await sendEmailInternal(to, subject, html);
+      res.json(result);
     } catch (error: any) {
-      console.error("Failed to send email:", error);
-      let errorMessage = error.message || "Failed to send email";
-      
-      if (error.message.includes("535-5.7.8")) {
-        errorMessage = "Email Login Failed: Please use a Google 'App Password' instead of your regular password.";
-      } else if (error.message.includes("missing")) {
-        errorMessage = "SMTP secrets are missing in the environment variables.";
-      }
-      
-      res.status(500).json({ error: errorMessage, details: error.message });
+      console.error("Email API failed:", error.message);
+      res.status(500).json({ error: error.message });
     }
   });
 

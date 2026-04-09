@@ -23,7 +23,8 @@
         "reminderUnit": { "type": "string" },
         "completed": { "type": "boolean" },
         "userId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "remindersSent": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["title", "deadline", "userId", "completed"]
     },

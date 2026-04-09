@@ -511,46 +511,10 @@ const Dashboard = () => {
       setStats({ total, completed, pending });
     });
 
-    // Notification Checker
-    const notifiedTasks = new Set<string>();
-    const interval = setInterval(() => {
-      const now = new Date();
-      tasks.forEach(task => {
-        if (task.completed) return;
-        
-        const deadline = new Date(task.deadline);
-        const diffMs = deadline.getTime() - now.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-
-        // 5 mins before automatic notification
-        if (diffMins === 5 && !notifiedTasks.has(`${task.id}-5min`)) {
-          addAppNotification("Task Reminder", `"${task.title}" is due in 5 minutes!`, 'reminder', user.email, user.id);
-          notifiedTasks.add(`${task.id}-5min`);
-        }
-
-        // Custom reminder
-        if (task.reminderValue && task.reminderUnit) {
-          const val = parseInt(task.reminderValue);
-          let reminderMs = 0;
-          if (task.reminderUnit === 'hours') reminderMs = val * 60 * 60 * 1000;
-          if (task.reminderUnit === 'days') reminderMs = val * 24 * 60 * 60 * 1000;
-
-          const reminderTime = deadline.getTime() - reminderMs;
-          const timeToReminder = Math.floor((reminderTime - now.getTime()) / 60000);
-
-          if (timeToReminder === 0 && !notifiedTasks.has(`${task.id}-custom`)) {
-            addAppNotification("Task Reminder", `"${task.title}" reminder: Due at ${formatDate(task.deadline)}`, 'reminder', user.email, user.id);
-            notifiedTasks.add(`${task.id}-custom`);
-          }
-        }
-      });
-    }, 30000); // Check every 30 seconds
-
     return () => {
       unsubscribe();
-      clearInterval(interval);
     };
-  }, [user, tasks]);
+  }, [user]);
 
   const handleToggle = async (id: string) => {
     const task = tasks.find(t => t.id === id);

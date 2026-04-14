@@ -311,6 +311,18 @@ app.post("/api/send-email", async (req, res) => {
   }
 });
 
+// Trigger Reminders Route (For Cron Jobs)
+app.get("/api/check-reminders", async (req, res) => {
+  try {
+    console.log("Cron Trigger: Running reminder check...");
+    await checkReminders();
+    res.json({ status: "ok", message: "Reminder check completed" });
+  } catch (error: any) {
+    console.error("Cron Trigger failed:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API Health check
 app.get("/api/health", (req, res) => {
   res.json({ 

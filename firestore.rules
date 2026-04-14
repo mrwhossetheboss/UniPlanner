@@ -21,8 +21,9 @@ service cloud.firestore {
     //   - reminderValue: string (optional)
     //   - reminderUnit: string (optional)
     //   - completed: bool (required)
-    //   - userId: string (required, matches auth.uid)
+    //   - userId: string (required, matches auth.uid or 'section-task')
     //   - createdAt: string (required, ISO format)
+    //   - hiddenBy: list (optional, UIDs of students who hid this task)
     //
     // ===============================================================
 
@@ -54,26 +55,40 @@ service cloud.firestore {
       return data.keys().hasOnly(allowedFields);
     }
 
+    function isAdminOrFaculty() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'faculty' ||
+         request.auth.token.email == "kjayasaideep2006@gmail.com");
+    }
+
     // ===============================================================
     // Validation Functions
     // ===============================================================
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(data, ['email', 'name']) &&
+      return hasOnlyAllowedFields(data, ['email', 'name', 'role', 'sections', 'onboarded', 'fcmTokens', 'subject']) &&
              data.email is string && isValidEmail(data.email) &&
-             (!('name' in data) || (data.name is string && data.name.size() < 100));
+             (!('name' in data) || (data.name is string && data.name.size() < 100)) &&
+             (!('subject' in data) || (data.subject is string && data.subject.size() < 100)) &&
+             data.role in ['student', 'faculty'] &&
+             data.sections is list &&
+             data.onboarded is bool;
     }
 
     function isValidTask(data) {
-      return hasOnlyAllowedFields(data, ['title', 'description', 'deadline', 'category', 'reminderValue', 'reminderUnit', 'completed', 'userId', 'createdAt', 'remindersSent']) &&
+      let allowedFields = ['title', 'description', 'deadline', 'category', 'completed', 'userId', 'createdBy', 'targetSections', 'createdAt', 'remindersSent', 'creatorName', 'creatorSubject', 'hiddenBy'];
+      return data.keys().hasOnly(allowedFields) &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
              isValidDateString(data.deadline) &&
              (!('category' in data) || (data.category is string && data.category.size() <= 50)) &&
              data.completed is bool &&
-             data.userId == request.auth.uid &&
              isValidDateString(data.createdAt) &&
-             (!('remindersSent' in data) || data.remindersSent is list);
+             (!('remindersSent' in data) || data.remindersSent is list) &&
+             (!('targetSections' in data) || data.targetSections is list) &&
+             (!('creatorName' in data) || data.creatorName is string) &&
+             (!('creatorSubject' in data) || data.creatorSubject is string) &&
+             (!('hiddenBy' in data) || data.hiddenBy is list);
     }
 
     // ===============================================================
@@ -81,20 +96,35 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isOwner(userId);
+      allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && isValidUser(request.resource.data);
     }
 
     match /tasks/{taskId} {
-      allow read: if isDocOwner();
-      allow create: if isAuthenticated() && isValidTask(request.resource.data);
-      allow update: if isDocOwner() && isValidTask(request.resource.data);
-      allow delete: if isDocOwner();
-      
-      match /subtasks/{subtaskId} {
-        allow read, write: if isDocOwner();
-      }
+      allow read: if isAuthenticated() && (
+        resource.data.get('userId', '') == request.auth.uid || 
+        resource.data.get('createdBy', '') == request.auth.uid ||
+        resource.data.get('userId', '') == 'section-task'
+      );
+      allow create: if isAuthenticated() && 
+                    isValidTask(request.resource.data) && 
+                    (request.resource.data.get('userId', '') == request.auth.uid || 
+                     (request.resource.data.get('userId', '') == 'section-task' && isAdminOrFaculty()));
+      allow update: if isAuthenticated() && (
+        // Owner or Faculty (for section-tasks) can update anything valid
+        ((resource.data.get('userId', '') == request.auth.uid || 
+          (resource.data.get('userId', '') == 'section-task' && isAdminOrFaculty())) && 
+         isValidTask(request.resource.data)) ||
+        // Students can only update 'hiddenBy' on section-tasks
+        (resource.data.get('userId', '') == 'section-task' && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenBy']) &&
+         request.resource.data.hiddenBy is list)
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.get('userId', '') == request.auth.uid || 
+        (resource.data.get('userId', '') == 'section-task' && isAdminOrFaculty())
+      );
     }
   }
 }

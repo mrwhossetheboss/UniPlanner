@@ -2,6 +2,10 @@ export interface User {
   id: string;
   email: string;
   name?: string;
+  role?: 'student' | 'faculty';
+  sections?: string[];
+  onboarded?: boolean;
+  subject?: string;
 }
 
 export interface Task {
@@ -10,10 +14,15 @@ export interface Task {
   description: string;
   deadline: string;
   category: string;
-  reminderValue?: string;
-  reminderUnit?: string;
   completed: boolean;
   createdAt: string;
+  userId: string;
+  createdBy?: string;
+  creatorName?: string;
+  creatorSubject?: string;
+  targetSections?: string[];
+  remindersSent?: string[];
+  hiddenBy?: string[];
 }
 
 export interface AppNotification {

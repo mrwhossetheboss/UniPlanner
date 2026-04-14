@@ -6,27 +6,31 @@
       "type": "object",
       "properties": {
         "email": { "type": "string", "format": "email" },
-        "name": { "type": "string" }
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "faculty"] },
+        "sections": { "type": "array", "items": { "type": "string" } },
+        "onboarded": { "type": "boolean" },
+        "fcmTokens": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["email"]
+      "required": ["email", "role", "onboarded"]
     },
     "Task": {
       "title": "Task",
-      "description": "A student task",
+      "description": "A task or assignment",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "description": { "type": "string" },
         "deadline": { "type": "string", "format": "date-time" },
         "category": { "type": "string" },
-        "reminderValue": { "type": "string" },
-        "reminderUnit": { "type": "string" },
         "completed": { "type": "boolean" },
         "userId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "targetSections": { "type": "array", "items": { "type": "string" } },
         "createdAt": { "type": "string", "format": "date-time" },
         "remindersSent": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["title", "deadline", "userId", "completed"]
+      "required": ["title", "deadline", "userId", "completed", "createdAt"]
     },
     "SubTask": {
       "title": "SubTask",

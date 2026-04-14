@@ -1,20 +1,22 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+UniPlanner – Student Productivity Web App
+🚀 Project Overview
 
-# Run and deploy your AI Studio app
+UniPlanner is a smart student productivity web application designed to help manage assignments, tasks, and deadlines efficiently. It provides features like task tracking, reminders, and calendar visualization to improve time management and productivity.
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/5411e47c-93c5-476d-978f-0265748f72c4
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+✨ Features
+✅ Task creation, update, and deletion
+✅ Deadline and priority management
+✅ Smart reminders & notifications
+✅ Calendar-based task visualization
+✅ Firebase authentication (Google login)
+✅ Real-time database synchronization
+✅ Responsive modern UI (Gen Z design)
+✅ Bulk task upload feature
+🛠 Tech Stack
+Frontend
+React (TypeScript)
+Vite
+Tailwind CSS
+Backend / Database
+Firebase (Firestore)
+Firebase Authentication
